@@ -1,0 +1,157 @@
+
+const User = require('../Model/user');
+const bcrypt = require('bcryptjs');
+const JWT = require('jsonwebtoken');
+
+// Register controller
+const registerUser = async (req, res) => {
+    try {
+        // extract user information from our request body
+        const { username, email, password, role } = req.body;
+
+        // check if user already exists
+        const checkExistingUser = await User.findOne({ $or: [{ username }, { email }] });
+        if (checkExistingUser) {
+            return res.status(400).json({
+                success: false,
+                message: "User is already is existed",
+            });
+        }
+
+        // hash the password
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+
+        // create a new user and saved in database
+        const newUser = new User({
+            username,
+            email,
+            password: hashedPassword,
+            role: role || 'user'
+        })
+
+        await newUser.save();
+
+        if (newUser) {
+            res.status(201).json({
+                success: true,
+                message: "User is registerd successfully"
+            });
+        }
+        else {
+            res.status(400).json({
+                success: false,
+                message: "Unable to register user."
+            })
+        }
+    }
+    catch (e) {
+        console.log(e);
+        res.status(500).json({
+            success: false,
+            message: "Something went wrong"
+        });
+    }
+}
+
+// login controller
+const loginUser = async (req, res) => {
+    try {
+        // extract user information from our request body
+        const { username, password } = req.body
+
+        // check if user already exists
+        const user = await User.findOne({ username });
+
+        if (!user) {
+            res.status(400).json({
+                success: false,
+                message: "User not found"
+            });
+        }
+
+        // if the password is corrct or not
+        const isPasswordMatched = await bcrypt.compare(password, user.password);
+
+        if (!isPasswordMatched) {
+            res.status(400).json({
+                success: false,
+                message: "Invalid credentials"
+            });
+        }
+
+        // create a user token
+        const accessToken = JWT.sign({
+            userId: user._id.toString(),
+            username: user.username,
+            role: user.role
+        }, process.env.JWT_SECRET_KEY, {
+            expiresIn: '15m'
+        });
+
+        res.status(200).json({
+            success: true,
+            message: "Logged in successfully",
+            accessToken
+        });
+
+    }
+    catch (e) {
+        console.log(e);
+        res.status(500).json({
+            success: false,
+            messsage: "Something went wrrong"
+        });
+    }
+}
+
+// Change password functionality
+const changePassword = async (req, res) => {
+    try {
+        // extract user information from our request body
+        const userId = req.userInfo.userId;
+
+        const { oldPassword, newPassword } = req.body;
+
+        // check if user already exists
+        const user = await User.findById(userId);
+
+        if (!user) {
+            return res.status(400).json({
+                success: false,
+                message: "User not found",
+            });
+        }
+
+        // if the password is correct or not
+        const isPasswordMatched = await bcrypt.compare(oldPassword, user.password);
+
+        if (!isPasswordMatched) {
+            return res.status(400).json({
+                success: false,
+                message: " Invalid credentials"
+            });
+        }
+
+        // hash the new password
+        const salt = await bcrypt.genSalt(10);
+        const newHashedPassword = await bcrypt.hash(newPassword, salt);
+
+        // update the password in the database
+        user.password = newHashedPassword;
+        await user.save();
+
+        return res.status(200).json({
+            success: true,
+            message: "Password changed successfully",
+        });
+    }
+    catch (e) {
+        console.error("Error changing password: ", e);
+        return res.status(500).json({
+            success: false,
+            message: "Something went wrong while changing the password",
+        });
+    }
+}
+module.exports = { registerUser, loginUser, changePassword };
